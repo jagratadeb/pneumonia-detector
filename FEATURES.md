@@ -1,16 +1,17 @@
 # Feature Roadmap
 
 ## High Priority
-
-- [ ] Improve error handling for missing or corrupted model files.
-- [ ] Add clear messages for unsupported and invalid image uploads.
-- [ ] Add image validation for file size, dimensions, and format.
-- [ ] Support grayscale images safely.
-- [ ] Add confidence visualization with prediction probability charts.
-- [ ] Show a warning for uncertain predictions.
-- [ ] Display model version and supported classes.
-- [ ] Display the device used for inference.
-- [ ] Improve the user interface with sidebar instructions and sample input guidance.
+- [x] Take multiple X-ray images as input and display the prediction for each image (maximum 10 images).
+- [x] For each image, display the predicted class and an understandable confidence score.
+- [x] Improve error handling for missing or corrupted model files.
+- [x] Add clear messages for unsupported and invalid image uploads.
+- [x] Add image validation for file size, dimensions, and format.
+- [x] Support grayscale images safely.
+- [x] Add confidence visualization with prediction probability charts.
+- [x] Show a warning for uncertain predictions.
+- [x] Display model information and supported classes.
+- [x] Display the device used for inference.
+- [x] Improve the user interface with sidebar instructions and sample input guidance.
 
 ## Medium Priority
 
