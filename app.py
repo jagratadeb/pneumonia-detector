@@ -140,7 +140,7 @@ def display_score_chart(result: dict[str, np.ndarray | int]) -> None:
         "SVM": result["svm"],
         "Ensemble": result["ensemble"],
     }
-    figure, axis = plt.subplots(figsize=(8, 3.5))
+    figure, axis = plt.subplots(figsize=(6, 2.4))
     positions = np.arange(len(LABELS))
     width = 0.2
     for offset, (model_name, scores) in enumerate(model_scores.items()):
@@ -152,9 +152,9 @@ def display_score_chart(result: dict[str, np.ndarray | int]) -> None:
         )
     axis.set_xticks(positions, [LABELS[index] for index in LABELS])
     axis.set_ylim(0, 1)
-    axis.set_ylabel("Probability")
+    axis.set_ylabel("Score")
     axis.set_title("Model confidence comparison")
-    axis.legend(ncols=2)
+    axis.legend(ncols=2, fontsize="small")
     axis.grid(axis="y", alpha=0.25)
     st.pyplot(figure)
     plt.close(figure)
@@ -166,10 +166,74 @@ st.set_page_config(
     layout="centered",
 )
 
-st.title("Chest X-ray Pneumonia Classification")
-st.write(
-    "Upload up to 10 chest X-ray images. ResNet18, KNN, and SVM scores are "
-    "combined into one ensemble prediction for each image."
+st.markdown(
+    """
+    <style>
+    .block-container {
+        max-width: 1100px;
+        padding: 1rem 1rem 2rem;
+    }
+    h1 {
+        font-size: clamp(1.5rem, 5vw, 2.2rem) !important;
+        margin-bottom: 0.25rem !important;
+    }
+    h2, h3 {
+        margin-top: 0.35rem !important;
+        margin-bottom: 0.35rem !important;
+    }
+    [data-testid="stMetric"] {
+        padding: 0.35rem 0.5rem;
+    }
+    [data-testid="stMetricLabel"] {
+        font-size: 0.72rem;
+    }
+    [data-testid="stMetricValue"] {
+        font-size: 0.9rem;
+        white-space: nowrap;
+    }
+    [data-testid="stImage"] img {
+        max-width: 100%;
+        height: auto;
+        object-fit: contain;
+    }
+    .prediction-badge {
+        border-radius: 0.45rem;
+        color: white;
+        font-size: 0.9rem;
+        font-weight: 700;
+        margin: 0.25rem 0 0.5rem;
+        padding: 0.3rem 0.35rem;
+        text-align: center;
+    }
+    .normal-badge {
+        background: #198754;
+    }
+    .pneumonia-badge {
+        background: #dc3545;
+    }
+    @media (max-width: 640px) {
+        .block-container {
+            padding: 0.65rem 0.55rem 1.25rem;
+        }
+        [data-testid="stImage"] img {
+            max-height: 150px;
+        }
+    }
+    @media (min-width: 641px) and (max-width: 1000px) {
+        .block-container {
+            padding: 0.7rem 0.65rem 1.5rem;
+        }
+        [data-testid="stImage"] img {
+            max-height: 150px;
+        }
+    }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
+st.title("Chest X-ray Classification")
+st.caption(
+    "Upload up to 10 images. ResNet18, KNN, and SVM are combined for each result."
 )
 st.warning(
     "Research/demo use only. This result is not a medical diagnosis and must "
@@ -219,71 +283,108 @@ if uploaded_file:
         st.error(f"Please select no more than {MAX_UPLOADS} images.")
         st.stop()
 
-    for file in uploaded_file:
-        st.divider()
-        st.subheader(file.name)
-        if file.size > MAX_FILE_SIZE_MB * 1024 * 1024:
-            st.error(
-                f"This file is larger than {MAX_FILE_SIZE_MB} MB and was skipped."
-            )
-            continue
+    for row_start in range(0, len(uploaded_file), 2):
+        result_columns = st.columns(2, gap="small")
+        for column, file in zip(
+            result_columns, uploaded_file[row_start : row_start + 2]
+        ):
+            with column:
+                with st.container(border=True):
+                    st.caption(file.name)
+                    if file.size > MAX_FILE_SIZE_MB * 1024 * 1024:
+                        st.error(
+                            f"Over {MAX_FILE_SIZE_MB} MB. Skipped.",
+                            icon="⚠️",
+                        )
+                        continue
 
-        try:
-            image = Image.open(file).convert("RGB")
-            image.load()
-        except (UnidentifiedImageError, OSError) as exc:
-            st.error(f"This file is not a valid image and was skipped: {exc}")
-            continue
+                    try:
+                        image = Image.open(file).convert("RGB")
+                        image.load()
+                    except (UnidentifiedImageError, OSError) as exc:
+                        st.error(f"Invalid image: {exc}", icon="⚠️")
+                        continue
 
-        st.image(image, caption="Uploaded chest X-ray", use_container_width=True)
-        try:
-            with st.spinner(f"Classifying {file.name}..."):
-                result = classify_uploaded_image(
-                    image, model, knn_bundle, svm_bundle
-                )
-        except (RuntimeError, ValueError) as exc:
-            st.error(f"Could not classify {file.name}: {exc}")
-            continue
+                    try:
+                        with st.spinner("Classifying..."):
+                            result = classify_uploaded_image(
+                                image, model, knn_bundle, svm_bundle
+                            )
+                    except (RuntimeError, ValueError) as exc:
+                        st.error(f"Could not classify: {exc}", icon="⚠️")
+                        continue
 
-        predicted_index = int(result["predicted_index"])
-        ensemble_probabilities = result["ensemble"]
-        predicted_label = LABELS[predicted_index]
-        confidence = float(ensemble_probabilities[predicted_index])
-        st.subheader(f"Ensemble prediction: {predicted_label}")
-        st.metric("Confidence", f"{confidence:.1%}")
-        if confidence < UNCERTAIN_CONFIDENCE:
-            st.warning(
-                "The ensemble confidence is low. Treat this result as uncertain "
-                "and request qualified human review."
-            )
+                    predicted_index = int(result["predicted_index"])
+                    ensemble_probabilities = result["ensemble"]
+                    predicted_label = LABELS[predicted_index]
+                    confidence = float(ensemble_probabilities[predicted_index])
+                    badge_class = (
+                        "normal-badge"
+                        if predicted_index == 0
+                        else "pneumonia-badge"
+                    )
+                    summary_column, image_column = st.columns([1, 1], gap="small")
+                    with summary_column:
+                        st.markdown(
+                            f'<div class="prediction-badge {badge_class}">'
+                            f"{predicted_label}</div>",
+                            unsafe_allow_html=True,
+                        )
+                        st.metric("Confidence", f"{confidence:.1%}")
+                        if confidence < UNCERTAIN_CONFIDENCE:
+                            st.warning(
+                                "Low confidence — human review recommended."
+                            )
+                    with image_column:
+                        st.image(image, caption="Uploaded image", width=150)
 
-        score_table = {
-            LABELS[class_index]: {
-                "ResNet18": float(result["resnet"][class_index]),
-                "KNN": float(result["knn"][class_index]),
-                "SVM": float(result["svm"][class_index]),
-                "Ensemble": float(ensemble_probabilities[class_index]),
-            }
-            for class_index in LABELS
-        }
-        st.dataframe(
-            {
-                "Class": list(score_table),
-                "ResNet18": [
-                    score_table[label]["ResNet18"] for label in score_table
-                ],
-                "KNN": [score_table[label]["KNN"] for label in score_table],
-                "SVM": [score_table[label]["SVM"] for label in score_table],
-                "Ensemble": [
-                    score_table[label]["Ensemble"] for label in score_table
-                ],
-            },
-            hide_index=True,
-            column_config={
-                "ResNet18": st.column_config.NumberColumn(format="%.1%"),
-                "KNN": st.column_config.NumberColumn(format="%.1%"),
-                "SVM": st.column_config.NumberColumn(format="%.1%"),
-                "Ensemble": st.column_config.NumberColumn(format="%.1%"),
-            },
-        )
-        display_score_chart(result)
+                    score_table = {
+                        LABELS[class_index]: {
+                            "ResNet18": round(
+                                float(result["resnet"][class_index]), 6
+                            ),
+                            "KNN": round(
+                                float(result["knn"][class_index]), 6
+                            ),
+                            "SVM": round(
+                                float(result["svm"][class_index]), 6
+                            ),
+                            "Ensemble": round(
+                                float(ensemble_probabilities[class_index]), 6
+                            ),
+                        }
+                        for class_index in LABELS
+                    }
+                    st.dataframe(
+                        {
+                            "Class": list(score_table),
+                            "ResNet": [
+                                score_table[label]["ResNet18"]
+                                for label in score_table
+                            ],
+                            "KNN": [
+                                score_table[label]["KNN"] for label in score_table
+                            ],
+                            "SVM": [
+                                score_table[label]["SVM"] for label in score_table
+                            ],
+                            "Final": [
+                                score_table[label]["Ensemble"]
+                                for label in score_table
+                            ],
+                        },
+                        hide_index=True,
+                        height=115,
+                        column_config={
+                            "ResNet": st.column_config.NumberColumn(
+                                format="%.2%"
+                            ),
+                            "KNN": st.column_config.NumberColumn(format="%.2%"),
+                            "SVM": st.column_config.NumberColumn(format="%.2%"),
+                            "Final": st.column_config.NumberColumn(
+                                format="%.2%"
+                            ),
+                        },
+                    )
+                    with st.expander("Confidence chart"):
+                        display_score_chart(result)
