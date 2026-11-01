@@ -1,0 +1,2 @@
+Model,Accuracy,Precision,Recall,Specificity,F1-Score,ROC-AUC
+ResNet-18,0.9896,0.9466,0.9653,0.9928,0.9559,0.9992
