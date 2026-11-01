@@ -2,3 +2,5 @@ streamlit
 torch
 torchvision
 pillow
+numpy
+scikit-learn==1.6.1

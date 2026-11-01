@@ -1,5 +1,6 @@
 from pathlib import Path
 
+import numpy as np
 import streamlit as st
 import torch
 import torch.nn as nn
@@ -12,6 +13,8 @@ MODEL_PATH = (
     / "ResNet18"
     / "resnet18_state_dict.pth"
 )
+KNN_MODEL_PATH = Path(__file__).resolve().parent / "KNN" / "knn_model_latest.pkl"
+SVM_MODEL_PATH = Path(__file__).resolve().parent / "SVM" / "svm_rbf_latest.pkl"
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 LABELS = {0: "Normal", 1: "Viral Pneumonia"}
 
@@ -41,11 +44,52 @@ def load_model() -> nn.Module:
     return model
 
 
-def classify_image(model: nn.Module, image: Image.Image) -> tuple[int, torch.Tensor]:
+@st.cache_resource
+def load_classical_models() -> tuple[dict, dict]:
+    import pickle
+
+    bundles = []
+    for path, model_key in (
+        (KNN_MODEL_PATH, "knn_model"),
+        (SVM_MODEL_PATH, "svm_model"),
+    ):
+        if not path.is_file():
+            raise FileNotFoundError(f"Model artifact not found: {path}")
+        with path.open("rb") as handle:
+            bundle = pickle.load(handle)
+        required_keys = {model_key, "scaler", "pca", "img_size"}
+        if not required_keys.issubset(bundle):
+            missing = sorted(required_keys - bundle.keys())
+            raise ValueError(f"{path.name} is missing keys: {', '.join(missing)}")
+        bundles.append(bundle)
+    return bundles[0], bundles[1]
+
+
+def classify_image(model: nn.Module, image: Image.Image) -> torch.Tensor:
     tensor = PREPROCESS(image.convert("RGB")).unsqueeze(0).to(DEVICE)
     with torch.inference_mode():
         probabilities = torch.softmax(model(tensor), dim=1)[0].cpu()
-    return int(probabilities.argmax().item()), probabilities
+    return probabilities
+
+
+def classical_features(image: Image.Image, image_size: tuple[int, int]) -> np.ndarray:
+    grayscale = image.convert("L").resize(image_size)
+    pixels = np.asarray(grayscale, dtype=np.float32)
+    statistics = np.array(
+        [pixels.mean(), pixels.std(), pixels.min(), pixels.max()],
+        dtype=np.float32,
+    )
+    return np.concatenate([pixels.flatten(), statistics]).reshape(1, -1)
+
+
+def classify_classical(
+    bundle: dict, image: Image.Image, model_key: str
+) -> np.ndarray:
+    image_size = tuple(bundle["img_size"])
+    features = classical_features(image, image_size)
+    transformed = bundle["pca"].transform(bundle["scaler"].transform(features))
+    model = bundle[model_key]
+    return np.asarray(model.predict_proba(transformed)[0], dtype=np.float32)
 
 
 st.set_page_config(
@@ -63,7 +107,8 @@ st.warning(
 
 try:
     model = load_model()
-except (FileNotFoundError, RuntimeError) as exc:
+    knn_bundle, svm_bundle = load_classical_models()
+except (FileNotFoundError, RuntimeError, ValueError, OSError) as exc:
     st.error(f"The model could not be loaded: {exc}")
     st.stop()
 
@@ -82,16 +127,43 @@ if uploaded_file is not None:
     st.image(image, caption="Uploaded chest X-ray", use_container_width=True)
 
     with st.spinner("Classifying image..."):
-        predicted_index, probabilities = classify_image(model, image)
+        resnet_probabilities = classify_image(model, image).numpy()
+        knn_probabilities = classify_classical(knn_bundle, image, "knn_model")
+        svm_probabilities = classify_classical(svm_bundle, image, "svm_model")
+
+    ensemble_probabilities = (
+        resnet_probabilities + knn_probabilities + svm_probabilities
+    ) / 3
+    predicted_index = int(ensemble_probabilities.argmax())
 
     predicted_label = LABELS[predicted_index]
-    st.subheader(f"Prediction: {predicted_label}")
+    st.subheader(f"Ensemble prediction: {predicted_label}")
+    st.caption("Final score is the equal-weight average of ResNet18, KNN, and SVM.")
 
-    columns = st.columns(2)
-    for column, class_index in zip(columns, LABELS):
-        column.metric(
-            LABELS[class_index],
-            f"{float(probabilities[class_index]) * 100:.2f}%",
-        )
+    score_table = {
+        LABELS[class_index]: {
+            "ResNet18": float(resnet_probabilities[class_index]),
+            "KNN": float(knn_probabilities[class_index]),
+            "SVM": float(svm_probabilities[class_index]),
+            "Ensemble": float(ensemble_probabilities[class_index]),
+        }
+        for class_index in LABELS
+    }
+    st.dataframe(
+        {
+            "Class": list(score_table),
+            "ResNet18": [score_table[label]["ResNet18"] for label in score_table],
+            "KNN": [score_table[label]["KNN"] for label in score_table],
+            "SVM": [score_table[label]["SVM"] for label in score_table],
+            "Ensemble": [score_table[label]["Ensemble"] for label in score_table],
+        },
+        hide_index=True,
+        column_config={
+            "ResNet18": st.column_config.NumberColumn(format="%.2f"),
+            "KNN": st.column_config.NumberColumn(format="%.2f"),
+            "SVM": st.column_config.NumberColumn(format="%.2f"),
+            "Ensemble": st.column_config.NumberColumn(format="%.2f"),
+        },
+    )
 
     st.caption(f"Running on: {DEVICE}")
