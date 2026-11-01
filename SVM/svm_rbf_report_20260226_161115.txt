@@ -1,0 +1,65 @@
+=================================================================
+  PNEUMONIA DETECTION — SVM RBF REPORT
+=================================================================
+
+Date          : 20260226_161115
+Model         : SVM | kernel=rbf | C=1.0 | gamma=scale
+Split         : Train 70% | Val 15% | Test 15%
+PCA variance  : 91.50%
+
+TRAINING LOOP
+────────────────────────────────────────
+  Max rounds   : 20
+  Patience     : 5
+  Total run    : 6
+  Best round   : 1  Val-F1=0.9519
+  Overfit rnds : []
+
+  Round  TrainF1   ValF1     Gap    Overfit
+      1  0.9609    0.9519    0.0090   no
+      2  0.9647    0.9370    0.0277   no
+      3  0.9630    0.9455    0.0175   no
+      4  0.9661    0.9380    0.0281   no
+      5  0.9678    0.9246    0.0432   no
+      6  0.9647    0.9340    0.0307   no
+
+5-FOLD CV
+────────────────────────────────────────
+  Fold 1  TrainF1=0.9641  ValF1=0.9389
+  Fold 2  TrainF1=0.9649  ValF1=0.9474
+  Fold 3  TrainF1=0.9643  ValF1=0.9241
+  Fold 4  TrainF1=0.9636  ValF1=0.9336
+  Fold 5  TrainF1=0.9630  ValF1=0.9407
+  Mean gap : 0.0270
+
+VALIDATION (best round)
+────────────────────────────────────────
+  accuracy              : 0.9890236857307915
+  precision             : 0.9740932642487047
+  recall_sensitivity    : 0.9306930693069307
+  specificity           : 0.9967298888162197
+  f1_score              : 0.9518987341772152
+  roc_auc               : 0.9984588386896244
+  tn                    : 1524
+  fp                    : 5
+  fn                    : 14
+  tp                    : 188
+
+TEST SET (final)
+────────────────────────────────────────
+  accuracy              : 0.9890236857307915
+  precision             : 0.9463414634146341
+  recall_sensitivity    : 0.9603960396039604
+  specificity           : 0.9928057553956835
+  f1_score              : 0.9533169533169533
+  roc_auc               : 0.9972997299729973
+  tn                    : 1518
+  fp                    : 11
+  fn                    : 8
+  tp                    : 194
+
+OVERFIT CHECK
+────────────────────────────────────────
+  Val F1  : 0.9519
+  Test F1 : 0.9533
+  Gap     : -0.0014  (OK)
