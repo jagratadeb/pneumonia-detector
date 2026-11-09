@@ -98,6 +98,20 @@ clinically calibrated.
 | `KNN/` | KNN artifact, metrics, and evaluation outputs |
 | `SVM/` | SVM artifact, metrics, and evaluation outputs |
 | `requirements.txt` | Tested Python package versions |
+| `runtime.txt` | Python runtime selected by Streamlit Community Cloud |
+
+### Streamlit deployment
+
+The application is deployed with Python 3.13, as specified in
+`runtime.txt`. Keep this file at the repository root when deploying to
+Streamlit Community Cloud. Python 3.14 can cause transitive dependencies such
+as PyArrow and scikit-learn to be built from source instead of installed from
+prebuilt wheels, which can fail during dependency installation.
+
+After adding or changing `runtime.txt`, restart the app or deploy a new commit
+so Streamlit Cloud recreates its environment. If the deployment log still
+shows Python 3.14, clear the app cache/reboot the app and verify that the
+selected branch contains the updated file.
 
 ## 3. Model details
 
