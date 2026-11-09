@@ -97,10 +97,7 @@ clinically calibrated.
 | `ResNet18/` | ResNet-18 artifacts, metrics, and visualizations |
 | `KNN/` | KNN artifact, metrics, and evaluation outputs |
 | `SVM/` | SVM artifact, metrics, and evaluation outputs |
-| `FEATURES.md` | Feature roadmap and implementation status |
-| `deployment.md` | Detailed deployment and operational notes |
 | `requirements.txt` | Tested Python package versions |
-| `SOURCE.md` | Research methodology, dataset, and comparative results |
 
 ## 3. Model details
 
