@@ -1,5 +1,8 @@
 from pathlib import Path
 import pickle
+import os
+from datetime import datetime, timezone
+from io import StringIO
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -10,19 +13,50 @@ from PIL import Image, UnidentifiedImageError
 from torchvision import models, transforms
 
 
-MODEL_PATH = (
-    Path(__file__).resolve().parent
-    / "ResNet18"
-    / "resnet18_state_dict.pth"
+APP_ROOT = Path(__file__).resolve().parent
+
+
+def configured_path(variable: str, default: Path) -> Path:
+    configured = os.getenv(variable)
+    path = Path(configured) if configured else default
+    return path if path.is_absolute() else APP_ROOT / path
+
+
+def configured_number(
+    variable: str, default: int | float, minimum: int | float, maximum: int | float
+) -> int | float:
+    value = os.getenv(variable)
+    if value is None:
+        return default
+    try:
+        parsed = type(default)(value)
+    except ValueError:
+        return default
+    return parsed if minimum <= parsed <= maximum else default
+
+
+MODEL_PATH = configured_path(
+    "PNEUMONIA_RESNET_MODEL",
+    APP_ROOT / "ResNet18" / "resnet18_state_dict.pth",
 )
-KNN_MODEL_PATH = Path(__file__).resolve().parent / "KNN" / "knn_model_latest.pkl"
-SVM_MODEL_PATH = Path(__file__).resolve().parent / "SVM" / "svm_rbf_latest.pkl"
+KNN_MODEL_PATH = configured_path(
+    "PNEUMONIA_KNN_MODEL", APP_ROOT / "KNN" / "knn_model_latest.pkl"
+)
+SVM_MODEL_PATH = configured_path(
+    "PNEUMONIA_SVM_MODEL", APP_ROOT / "SVM" / "svm_rbf_latest.pkl"
+)
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 LABELS = {0: "Normal", 1: "Viral Pneumonia"}
-MAX_UPLOADS = 10
-MAX_FILE_SIZE_MB = 10
-MAX_IMAGE_DIMENSION = 4096
-UNCERTAIN_CONFIDENCE = 0.70
+MAX_UPLOADS = int(configured_number("PNEUMONIA_MAX_UPLOADS", 10, 1, 50))
+MAX_FILE_SIZE_MB = int(
+    configured_number("PNEUMONIA_MAX_FILE_SIZE_MB", 10, 1, 100)
+)
+MAX_IMAGE_DIMENSION = int(
+    configured_number("PNEUMONIA_MAX_IMAGE_DIMENSION", 4096, 256, 16384)
+)
+UNCERTAIN_CONFIDENCE = float(
+    configured_number("PNEUMONIA_UNCERTAIN_CONFIDENCE", 0.70, 0.0, 1.0)
+)
 
 PREPROCESS = transforms.Compose(
     [
@@ -160,6 +194,31 @@ def display_score_chart(result: dict[str, np.ndarray | int]) -> None:
     plt.close(figure)
 
 
+def result_row(filename: str, result: dict[str, np.ndarray | int]) -> dict[str, object]:
+    predicted_index = int(result["predicted_index"])
+    ensemble = result["ensemble"]
+    return {
+        "File": filename,
+        "Prediction": LABELS[predicted_index],
+        "Confidence": float(ensemble[predicted_index]),
+        "Normal": float(ensemble[0]),
+        "Viral Pneumonia": float(ensemble[1]),
+    }
+
+
+def results_csv(rows: list[dict[str, object]]) -> str:
+    if not rows:
+        return ""
+    output = StringIO()
+    columns = ["File", "Prediction", "Confidence", "Normal", "Viral Pneumonia"]
+    output.write(",".join(columns) + "\n")
+    for row in rows:
+        values = [str(row[column]) for column in columns]
+        output.write(",".join(f'"{value.replace(chr(34), chr(34) * 2)}"' for value in values))
+        output.write("\n")
+    return output.getvalue()
+
+
 st.set_page_config(
     page_title="Pneumonia Classification",
     page_icon="🩻",
@@ -251,6 +310,13 @@ with st.sidebar:
         "Use non-sensitive images only. This research/demo tool is not a "
         "medical diagnosis."
     )
+    st.caption(
+        "Uploaded images are processed in memory and are not saved by this app."
+    )
+    if st.session_state.get("prediction_history"):
+        if st.button("Clear session history"):
+            st.session_state.prediction_history = []
+            st.rerun()
 
 try:
     model = load_model()
@@ -273,7 +339,7 @@ except (
     st.stop()
 
 uploaded_file = st.file_uploader(
-    "Choose up to 10 chest X-ray images",
+    f"Choose up to {MAX_UPLOADS} chest X-ray images",
     type=["png", "jpg", "jpeg"],
     accept_multiple_files=True,
 )
@@ -283,6 +349,7 @@ if uploaded_file:
         st.error(f"Please select no more than {MAX_UPLOADS} images.")
         st.stop()
 
+    batch_rows = []
     for row_start in range(0, len(uploaded_file), 2):
         result_columns = st.columns(2, gap="small")
         for column, file in zip(
@@ -314,6 +381,7 @@ if uploaded_file:
                         st.error(f"Could not classify: {exc}", icon="⚠️")
                         continue
 
+                    batch_rows.append(result_row(file.name, result))
                     predicted_index = int(result["predicted_index"])
                     ensemble_probabilities = result["ensemble"]
                     predicted_label = LABELS[predicted_index]
@@ -388,3 +456,55 @@ if uploaded_file:
                     )
                     with st.expander("Confidence chart"):
                         display_score_chart(result)
+
+    if batch_rows:
+        history = st.session_state.setdefault("prediction_history", [])
+        for index, row in enumerate(batch_rows, start=1):
+            history[:] = [
+                previous
+                for previous in history
+                if previous["File"] != f"Image {index}"
+            ]
+            history.append(
+                {
+                    **row,
+                    "File": f"Image {index}",
+                    "Time (UTC)": datetime.now(timezone.utc).strftime(
+                        "%Y-%m-%d %H:%M:%S"
+                    ),
+                }
+            )
+
+        st.subheader("Batch summary")
+        st.dataframe(
+            batch_rows,
+            hide_index=True,
+            use_container_width=True,
+            column_config={
+                "Confidence": st.column_config.NumberColumn(format="%.2%"),
+                "Normal": st.column_config.NumberColumn(format="%.2%"),
+                "Viral Pneumonia": st.column_config.NumberColumn(format="%.2%"),
+            },
+        )
+        st.download_button(
+            "Download batch results (CSV)",
+            data=results_csv(batch_rows),
+            file_name="pneumonia_predictions.csv",
+            mime="text/csv",
+        )
+
+if st.session_state.get("prediction_history"):
+    with st.expander("Session-only prediction history"):
+        st.caption(
+            "History is cleared when this browser session ends and contains no images."
+        )
+        st.dataframe(
+            st.session_state.prediction_history,
+            hide_index=True,
+            use_container_width=True,
+            column_config={
+                "Confidence": st.column_config.NumberColumn(format="%.2%"),
+                "Normal": st.column_config.NumberColumn(format="%.2%"),
+                "Viral Pneumonia": st.column_config.NumberColumn(format="%.2%"),
+            },
+        )
